@@ -178,3 +178,14 @@ Comments are posted with a coloured label based on the AI's severity rating:
 | 🔴 | high | Bugs or security issues |
 | 🟡 | medium | Code quality problems |
 | 🔵 | low | Style or minor suggestions |
+
+---
+
+## Contributing
+
+Contributions are welcome. To contribute:
+
+1. Open an issue describing your change.
+2. Fork the repo and create a branch.
+3. Make your changes and test them.
+4. Submit a pull request referencing the issue.

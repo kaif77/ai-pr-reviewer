@@ -215,20 +215,62 @@ if [ -z "$REVIEW_JSON" ]; then
 
   DIFF_CONTENT=$(cat "$DIFF_FILE")
 
-  REVIEW_JSON=$(claude -p "You are a senior software engineer doing a thorough PR review.
-Analyze the following diff carefully and respond in PURE JSON only.
-No markdown, no backticks, no explanation — raw JSON only.
+  # ── Fetch full file contents for context ──
+  echo -e "${YELLOW}📂 Fetching full file contents for context...${NC}"
+  FILE_CONTEXTS=""
+  FILE_COUNT=0
+  FILE_SKIP_COUNT=0
+  MAX_FILE_BYTES=102400  # 100 KB per file
+
+  while IFS= read -r filepath; do
+    [ -z "$filepath" ] && continue
+    ENCODED_PATH=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe='/'))" "$filepath" 2>/dev/null || echo "$filepath")
+    FILE_RESPONSE=$(gh_api GET "/repos/$REPO/contents/${ENCODED_PATH}?ref=$COMMIT_ID")
+    FILE_TYPE=$(echo "$FILE_RESPONSE" | jq -r '.type // empty')
+    FILE_SIZE=$(echo "$FILE_RESPONSE" | jq -r '.size // 0')
+
+    if [ "$FILE_TYPE" = "file" ]; then
+      if [ "$FILE_SIZE" -gt "$MAX_FILE_BYTES" ]; then
+        echo -e "  ${YELLOW}⚠️  Skipped $filepath (${FILE_SIZE} bytes > limit)${NC}"
+        FILE_SKIP_COUNT=$((FILE_SKIP_COUNT + 1))
+      else
+        DECODED=$(echo "$FILE_RESPONSE" | jq -r '.content' | tr -d '\n' | base64 -d 2>/dev/null)
+        if [ -n "$DECODED" ]; then
+          FILE_CONTEXTS+="
+=== FULL CONTENT: $filepath ===
+$DECODED
+=== END: $filepath ===
+"
+          FILE_COUNT=$((FILE_COUNT + 1))
+          echo -e "  ${GREEN}✅ $filepath${NC}"
+        fi
+      fi
+    else
+      echo -e "  ${YELLOW}⚠️  Skipped $filepath (deleted, binary, or inaccessible)${NC}"
+      FILE_SKIP_COUNT=$((FILE_SKIP_COUNT + 1))
+    fi
+  done < <(grep '^+++ b/' "$DIFF_FILE" | sed 's|^+++ b/||')
+
+  echo -e "${GREEN}✅ Fetched $FILE_COUNT file(s) for context ($FILE_SKIP_COUNT skipped)${NC}"
+
+  PROMPT_FILE=$(mktemp /tmp/pr_review_XXXXXX.txt)
+
+  cat > "$PROMPT_FILE" << 'PROMPT_STATIC'
+You are a senior software engineer doing a thorough PR review.
+You have been provided with the FULL content of each changed file for complete context, followed by the diff showing exactly what changed.
+Use the full file content to understand surrounding logic, dependencies, and patterns. Only comment on lines that appear in the diff.
+Respond in PURE JSON only. No markdown, no backticks, no explanation — raw JSON only.
 
 Return this exact structure:
 {
-  \"summary\": \"2-3 sentence overall summary of the changes\",
-  \"verdict\": \"APPROVE or REQUEST_CHANGES\",
-  \"comments\": [
+  "summary": "2-3 sentence overall summary of the changes",
+  "verdict": "APPROVE or REQUEST_CHANGES",
+  "comments": [
     {
-      \"file\": \"exact/path/to/file.py\",
-      \"line\": 42,
-      \"severity\": \"high or medium or low\",
-      \"comment\": \"specific actionable feedback\"
+      "file": "exact/path/to/file.py",
+      "line": 42,
+      "severity": "high or medium or low",
+      "comment": "specific actionable feedback"
     }
   ]
 }
@@ -240,8 +282,21 @@ Rules:
 - Only comment on lines that appear in the diff
 - If no issues found, return empty comments array and APPROVE verdict
 
-Diff to review:
-$DIFF_CONTENT" 2>/dev/null)
+Full file contents (for context):
+PROMPT_STATIC
+
+  printf '%s\n\nDiff to review:\n%s\n' "$FILE_CONTEXTS" "$DIFF_CONTENT" >> "$PROMPT_FILE"
+
+  REVIEW_JSON=$(claude -p < "$PROMPT_FILE" 2>&1) || {
+    echo -e "${RED}❌ Claude CLI failed. Output:${NC}"
+    echo "$REVIEW_JSON"
+    rm -f "$PROMPT_FILE"
+    exit 1
+  }
+  rm -f "$PROMPT_FILE"
+
+  # ── Strip any diagnostic lines before the JSON ──
+  REVIEW_JSON=$(printf '%s' "$REVIEW_JSON" | sed -n '/^[{[]/,$p')
 
   # ── Validate JSON ──
   if ! echo "$REVIEW_JSON" | jq . > /dev/null 2>&1; then

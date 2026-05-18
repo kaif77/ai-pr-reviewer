@@ -127,7 +127,7 @@ The script will ask three questions interactively:
 📂 Fetching full file contents for context...
   ✅ src/pages/student/Profile.jsx
   ✅ src/layouts/StudentLayout.jsx
-  ✅ src/layouts/AdminLayout.jsx
+  ✂️  src/layouts/AdminLayout.jsx (142830 bytes, excerpted)
 ✅ Fetched 3 file(s) for context (0 skipped)
 ✅ Review received and cached
 
@@ -160,7 +160,22 @@ The script will ask three questions interactively:
 
 Before calling the AI, each script fetches the complete content of every file touched by the diff from the GitHub API (at the PR's head commit). This gives the AI full visibility into surrounding logic, imports, and patterns — not just the changed lines.
 
-Files over **100 KB** are skipped automatically to keep the prompt size reasonable. Deleted or binary files are also skipped.
+| File size | Behaviour |
+|---|---|
+| ≤ 100 KB | Full file content is included |
+| > 100 KB | Only excerpts around changed hunks are included (±60 lines per hunk) |
+| Deleted / binary / inaccessible | Skipped |
+
+For large files the script parses the diff's `@@` hunk headers to find exactly which lines changed, then extracts the surrounding context from the file. The AI sees a note indicating the content is excerpted and the full file size. The context window (default 60 lines) can be tuned by changing `ctx=60` in the awk call inside each script.
+
+The threshold is configurable via `.env`:
+
+```bash
+# Default: 100 KB. Hard cap: 150 KB
+MAX_FILE_BYTES=153600
+```
+
+Values above 150 KB are clamped automatically with a warning.
 
 ---
 

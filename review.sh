@@ -220,7 +220,11 @@ if [ -z "$REVIEW_JSON" ]; then
   FILE_CONTEXTS=""
   FILE_COUNT=0
   FILE_SKIP_COUNT=0
-  MAX_FILE_BYTES=102400  # 100 KB per file
+  MAX_FILE_BYTES="${MAX_FILE_BYTES:-102400}"
+  if [ "$MAX_FILE_BYTES" -gt 153600 ]; then
+    echo -e "${YELLOW}⚠️  MAX_FILE_BYTES capped at 150 KB (was ${MAX_FILE_BYTES})${NC}"
+    MAX_FILE_BYTES=153600
+  fi
 
   while IFS= read -r filepath; do
     [ -z "$filepath" ] && continue
@@ -230,12 +234,41 @@ if [ -z "$REVIEW_JSON" ]; then
     FILE_SIZE=$(echo "$FILE_RESPONSE" | jq -r '.size // 0')
 
     if [ "$FILE_TYPE" = "file" ]; then
-      if [ "$FILE_SIZE" -gt "$MAX_FILE_BYTES" ]; then
-        echo -e "  ${YELLOW}⚠️  Skipped $filepath (${FILE_SIZE} bytes > limit)${NC}"
-        FILE_SKIP_COUNT=$((FILE_SKIP_COUNT + 1))
-      else
-        DECODED=$(echo "$FILE_RESPONSE" | jq -r '.content' | tr -d '\n' | base64 -d 2>/dev/null)
-        if [ -n "$DECODED" ]; then
+      DECODED=$(echo "$FILE_RESPONSE" | jq -r '.content' | tr -d '\n' | base64 -d 2>/dev/null)
+      if [ -n "$DECODED" ]; then
+        if [ "$FILE_SIZE" -gt "$MAX_FILE_BYTES" ]; then
+          DECODED_TMP=$(mktemp /tmp/pr_file_XXXXXX)
+          printf '%s\n' "$DECODED" > "$DECODED_TMP"
+          RANGES=$(awk -v fp="+++ b/$filepath" -v ctx=60 '
+            $0==fp{in_file=1;next} /^\+\+\+ /{in_file=0}
+            in_file && /^@@ / {
+              if(match($0,/\+([0-9]+)(,([0-9]+))?/,a)){
+                s=a[1]+0; c=(a[3]+0>0?a[3]+0:1)
+                print (s>ctx?s-ctx:1)" "(s+c+ctx)
+              }
+            }' "$DIFF_FILE")
+          if [ -n "$RANGES" ]; then
+            EXCERPT=$(awk -v ranges="$RANGES" -v sz="$FILE_SIZE" '
+              BEGIN {
+                n=split(ranges,p,"\n")
+                for(i=1;i<=n;i++){split(p[i],q," ");rs[i]=q[1]+0;re[i]=q[2]+0}
+                print "[excerpts around changed hunks — full file: "sz" bytes]"
+              }
+              { for(i=1;i<=n;i++) { if(NR>=rs[i]&&NR<=re[i]){print NR": "$0;break} } }
+            ' "$DECODED_TMP")
+            FILE_CONTEXTS+="
+=== EXCERPTS: $filepath ===
+$EXCERPT
+=== END: $filepath ===
+"
+            FILE_COUNT=$((FILE_COUNT + 1))
+            echo -e "  ${YELLOW}✂️  $filepath (${FILE_SIZE} bytes, excerpted)${NC}"
+          else
+            echo -e "  ${YELLOW}⚠️  Skipped $filepath (${FILE_SIZE} bytes, no hunks parsed)${NC}"
+            FILE_SKIP_COUNT=$((FILE_SKIP_COUNT + 1))
+          fi
+          rm -f "$DECODED_TMP"
+        else
           FILE_CONTEXTS+="
 === FULL CONTENT: $filepath ===
 $DECODED

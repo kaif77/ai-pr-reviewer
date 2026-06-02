@@ -11,6 +11,7 @@ Shell scripts that send a git diff to an AI model (Claude or Gemini), get a stru
 | `review.sh` | Linux | Claude CLI | `GITHUB_TOKEN`, `claude` CLI |
 | `mac_review_claude.sh` | macOS | Claude CLI | `GITHUB_TOKEN`, `claude` CLI |
 | `review_gemini.sh` | Linux | Gemini CLI | `GITHUB_TOKEN`, `gemini` CLI |
+| `review_windows.ps1` | Windows | Claude CLI | `GITHUB_TOKEN`, `claude` CLI |
 
 All scripts share the same flow and produce the same output — only the AI backend and OS differ.
 
@@ -23,13 +24,18 @@ All scripts share the same flow and produce the same output — only the AI back
 ```bash
 sudo apt-get install -y curl jq   # Linux
 brew install curl jq               # macOS
+# Windows — no extra packages needed (PowerShell uses built-in Invoke-RestMethod)
 ```
 
-### Node (via nvm)
+### Node
 
 ```bash
+# Linux / macOS — via nvm
 curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
 nvm install 22.14.0
+
+# Windows
+winget install OpenJS.NodeJS
 ```
 
 ### AI CLI
@@ -84,8 +90,22 @@ git diff main...pr-3 > /tmp/pr3.diff
 ## Running
 
 ```bash
+# Linux
 chmod +x review.sh
 ./review.sh
+
+# macOS
+chmod +x mac_review_claude.sh
+./mac_review_claude.sh
+```
+
+**Windows (PowerShell):**
+
+```powershell
+# Allow script execution if not already enabled (run once as Administrator)
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+
+.\review_windows.ps1
 ```
 
 The script will ask three questions interactively:

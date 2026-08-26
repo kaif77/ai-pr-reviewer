@@ -124,6 +124,11 @@ The script will ask three questions interactively:
 🧠 Loading nvm and sending diff to Claude for review...
 ✅ Using node v22.14.0 via nvm
 ✅ Claude CLI found
+📂 Fetching full file contents for context...
+  ✅ src/pages/student/Profile.jsx
+  ✅ src/layouts/StudentLayout.jsx
+  ✅ src/layouts/AdminLayout.jsx
+✅ Fetched 3 file(s) for context (0 skipped)
 ✅ Review received and cached
 
 ─────────────────────────────────────────
@@ -148,6 +153,14 @@ The script will ask three questions interactively:
 
 🎉 Done! View PR at: https://github.com/kaif77/student-portal/pull/3
 ```
+
+---
+
+## Full file context
+
+Before calling the AI, each script fetches the complete content of every file touched by the diff from the GitHub API (at the PR's head commit). This gives the AI full visibility into surrounding logic, imports, and patterns — not just the changed lines.
+
+Files over **100 KB** are skipped automatically to keep the prompt size reasonable. Deleted or binary files are also skipped.
 
 ---
 
